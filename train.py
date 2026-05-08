@@ -15,7 +15,7 @@ from clearml import Task
 from data import sample_8gaussians, sample_moons
 from models import VelocityMLP, SpatialSigmaModel
 from exfm import ExplicitFlowMatcher
-from losses import acceleration_penalty_loss, consistency_loss
+from losses import *
 from metrics import (
     integrate_trajectories, summarize_trajectory_metrics,
     plot_trajectories_vs_straight_lines, to_numpy
@@ -172,15 +172,13 @@ def train_experiment(cfg):
 
                 accel_loss = torch.tensor(0.0, device=device)
                 if cfg.loss.accel_weight > 0:
-                    accel_loss = acceleration_penalty_loss(model, xt, t)
+                    accel_loss = normal_acceleration_penalty_loss(model, xt, t)
                     total_loss = total_loss + cfg.loss.accel_weight * accel_loss
 
                 cons_loss = torch.tensor(0.0, device=device)
                 if cfg.loss.consistency_weight > 0:
-                    cons_loss = consistency_loss(
-                        model,
-                        xt,
-                        t,
+                    cons_loss = velocity_consistency_loss(
+                        model, xt, t,
                         epsilon=cfg.loss.consistency_epsilon,
                     )
                     total_loss = total_loss + cfg.loss.consistency_weight * cons_loss
@@ -220,8 +218,8 @@ def train_experiment(cfg):
         if logger is not None:
             logger.report_scalar("epoch", "avg_loss", avg_loss, epoch)
             logger.report_scalar("epoch", "avg_fm_loss", avg_fm, epoch)
-            logger.report_scalar("epoch", "avg_accel_loss", avg_accel, epoch)
-            logger.report_scalar("epoch", "avg_consistency_loss", avg_cons, epoch)
+            logger.report_scalar("epoch", "avg_normal_accel_loss", avg_accel, epoch)
+            logger.report_scalar("epoch", "avg_vel_consistency_loss", avg_cons, epoch)
 
         # -----------------------------
         # Evaluation on fixed validation set
@@ -251,8 +249,8 @@ def train_experiment(cfg):
                 fig = plot_trajectories_vs_straight_lines(traj, x_ref=x1_val)
                 logger.report_matplotlib_figure(
                     title="val_trajectories",
-                    series="trajectory_plot",
-                    iteration=epoch,
+                    series=f"trajectory_plot_ep_{epoch}",
+                    iteration=0,
                     figure=fig,
                 )
                 plt.close(fig)
