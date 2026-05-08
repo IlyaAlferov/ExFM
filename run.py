@@ -64,9 +64,9 @@ class TrainConfig:
     seed: int = 42
     device: str = "cuda"
 
-    num_epochs: int = 20
-    lr: float = 1e-3
-    weight_decay: float = 0.0
+    num_epochs: int = 40
+    lr: float = 3e-4
+    weight_decay: float = 1e-6
     grad_clip_norm: Optional[float] = 1.0
 
     num_workers: int = 0
@@ -106,33 +106,23 @@ if __name__ == "__main__":
     # -------------------------
     # Experiment name
     # -------------------------
-    cfg.name = "baseline_exfm_gaussians_to_moons"
+    cfg.name = "00_baseline_const_sigma"
     cfg.clearml.task_name = cfg.name
 
     # -------------------------
     # Data
     # -------------------------
-    cfg.data.reference_batch_size = 1024
-    cfg.data.local_batch_size = 256
+
 
     # -------------------------
     # Velocity model
     # -------------------------
-    cfg.velocity.hidden_dim = 128
-    cfg.velocity.num_layers = 4
-    cfg.velocity.time_conditioning = "sinusoidal"
-    cfg.velocity.time_emb_dim = 32
-    cfg.velocity.use_layernorm = False
+
 
     # -------------------------
     # Sigma model
     # -------------------------
-    cfg.sigma.mode = "scalar"
-    cfg.sigma.init_sigma = 0.5
-    # cfg.sigma.hidden_dim = 64
-    # cfg.sigma.num_layers = 3
-    # cfg.sigma.min_sigma = 1e-4
-    # cfg.sigma.use_layernorm = False
+    cfg.sigma.mode = "constant"
 
     # -------------------------
     # Flow matcher
@@ -142,25 +132,18 @@ if __name__ == "__main__":
     # -------------------------
     # Losses
     # -------------------------
-    # Только базовый FM-loss
-    cfg.loss.fm_weight = 1.0
-    cfg.loss.accel_weight = 1.0
-    cfg.loss.consistency_weight = 0
-    cfg.loss.consistency_epsilon = 0.01
+
 
     # -------------------------
     # Training
     # -------------------------
-    cfg.train.lr = 3e-4
-    cfg.train.weight_decay = 1e-6
-    cfg.train.grad_clip_norm = 1.0
-    cfg.train.num_workers = 0
+
 
     # -------------------------
     # ClearML
     # -------------------------
-    cfg.clearml.use = False
-    cfg.clearml.task_name = "baseline"
+    cfg.clearml.use = True
+    cfg.clearml.task_name = "00_baseline_const_sigma"
 
     # -------------------------
     # Run

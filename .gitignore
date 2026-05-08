@@ -54,3 +54,15 @@ Thumbs.db
 # Project specific
 *.pth
 *.onnx
+
+# Shell history
+.history
+.zsh_history
+.bash_history
+
+# Python history
+.python_history
+
+# MLCore job preset
+.ml-job-preset.yml
+.ml-job-preset.yaml

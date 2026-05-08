@@ -198,21 +198,26 @@ def summarize_trajectory_metrics(traj, x_target=None):
     return metrics
 
 
-def plot_trajectories_vs_straight_lines(traj, x_ref=None):
+def plot_trajectories_vs_straight_lines(traj, x_ref=None, max_trajectories: int = 1000):
     """
     Plot ODE trajectories and corresponding straight-line interpolations.
 
     Args:
-        traj:
-            [T, B, 2]
-        x_ref:
-            optional [N, 2] reference point cloud
+        traj: [T, B, 2]
+        x_ref: optional [N, 2] reference point cloud
+        max_trajectories: maximum number of trajectories to plot (randomly sampled)
     """
     traj = to_numpy(traj)
     x_ref = to_numpy(x_ref)
 
     T, N, D = traj.shape
     assert D == 2, "Function supports only 2D trajectories."
+
+    # Subsample trajectories if too many
+    if N > max_trajectories:
+        indices = np.random.choice(N, max_trajectories, replace=False)
+        traj = traj[:, indices, :]
+        N = max_trajectories
 
     fig, axes = plt.subplots(1, 2, figsize=(8, 4))
 
