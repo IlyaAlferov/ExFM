@@ -4,6 +4,7 @@ import ot
 import dcor
 import matplotlib.pyplot as plt
 from torchdiffeq import odeint
+from losses import compute_velocity_and_acceleration_components
 
 
 def to_numpy(x):
@@ -66,7 +67,7 @@ def integrate_trajectories(
     return traj
 
 
-def trajectory_curvature(trajectories):
+def trajectory_angle_turn(trajectories):
     """
     trajectories: [T, N, D]
     Returns per-trajectory mean turning angle.
@@ -77,7 +78,63 @@ def trajectory_curvature(trajectories):
 
     cos_angles = (dirs[:-1] * dirs[1:]).sum(axis=-1)  # [T-2, N]
     angles = np.arccos(np.clip(cos_angles, -1.0, 1.0))
-    return angles.mean(axis=0)  # [N]
+    return angles.mean(axis=0), angles.max(axis=0)  # [N]
+
+
+def trajectory_curvature(
+    model,
+    traj,
+    chunk_size: int = 1024,
+):
+    """
+    Computes curvature metrics along validation trajectories.
+
+    Args:
+        model: velocity field model, model(x, t) -> [B, D]
+        traj: [T, N, D] integrated trajectories
+        t_start: start time of integration
+        t_end: end time of integration
+        chunk_size: chunk size for curvature computation
+
+    Returns:
+        dict with curvature metrics
+    """
+    device = traj.device
+    T, N, D = traj.shape
+
+    t_grid = torch.linspace(0.0, 1.0, T, device=device)   # [T]
+    t_points = t_grid[:, None].expand(T, N)                     # [T, N]
+
+    x_flat = traj.reshape(T * N, D)
+    t_flat = t_points.reshape(T * N)
+
+    curvature_chunks = []
+
+    for i in range(0, x_flat.size(0), chunk_size):
+        xb = x_flat[i:i + chunk_size].detach()
+        tb = t_flat[i:i + chunk_size].detach()
+
+        with torch.enable_grad():
+            _, _, _, curvature = compute_velocity_and_acceleration_components(
+                model=model,
+                x=xb,
+                t=tb,
+            )
+
+        curvature_chunks.append(curvature.detach())
+
+    curvature_flat = torch.cat(curvature_chunks, dim=0)     # [T*N]
+    curvature_traj = curvature_flat.view(T, N)              # [T, N]
+
+    curv_mean_per_traj = curvature_traj.mean(dim=0)         # [N]
+    curv_med_per_traj = curvature_traj.median(dim=0).values    # [N]
+
+    metrics = {
+        "trajectory_curvature_mean": curv_mean_per_traj.mean().item(),
+        "trajectory_curvature_median": curv_med_per_traj.mean().item(),
+    }
+
+    return metrics
 
 
 def trajectory_straight_line_deviation(trajectories):
@@ -172,33 +229,35 @@ def summarize_trajectory_metrics(traj, x_target=None):
         dict
     """
     traj_np = to_numpy(traj)
-    x0 = traj_np[0]
     xT = traj_np[-1]
 
-    curv = trajectory_curvature(traj_np)
+    angle_turn_mean, angle_turn_max = trajectory_angle_turn(traj_np)
     dev_mean, dev_max = trajectory_straight_line_deviation(traj_np)
     eff = trajectory_path_efficiency(traj_np)
 
-    metrics = {
-        "trajectory_curvature_mean": float(curv.mean()),
-        "mean_straight_line_deviation": float(dev_mean.mean()),
-        "mean_max_straight_line_deviation": float(dev_max.mean()),
-        "path_efficiency_mean": float(eff.mean()),
-        "source_terminal_paired_l2_mean": float(mean_paired_l2_distance(x0, xT)),
-        "source_terminal_w2": float(empirical_w2_distance(x0, xT)),
-    }
-
+    metrics = {}
     if x_target is not None:
         x_target = to_numpy(x_target)
         metrics.update({
             "terminal_target_w2": float(empirical_w2_distance(xT, x_target)),
             "terminal_target_energy_distance": float(empirical_energy_distance(xT, x_target)),
         })
+    metrics.update({
+        # "source_terminal_paired_l2_mean": float(mean_paired_l2_distance(x0, xT)),
+        # "source_terminal_w2": float(empirical_w2_distance(x0, xT)),
+        "mean_straight_line_deviation": float(dev_mean.mean()),
+        # "mean_max_straight_line_deviation": float(dev_max.mean()),
+        "path_efficiency_mean": float(eff.mean()),
+        "trajectory_angle_turn_mean": float(angle_turn_mean.mean()),
+        "trajectory_angle_turn_max": float(angle_turn_max.mean()),
+    })
 
     return metrics
 
 
-def plot_trajectories_vs_straight_lines(traj, x_ref=None, max_trajectories: int = 1000):
+def plot_trajectories_vs_straight_lines(
+    traj, x_ref=None, max_trajectories: int = 1000
+):
     """
     Plot ODE trajectories and corresponding straight-line interpolations.
 
@@ -232,11 +291,11 @@ def plot_trajectories_vs_straight_lines(traj, x_ref=None, max_trajectories: int 
 
     # Straight lines
     ax = axes[1]
-    for i in range(N):
-        x0 = traj[0, i]
-        x1 = traj[-1, i]
-        ax.plot([x0[0], x1[0]], [x0[1], x1[1]], alpha=0.2, color="olive")
-    ax.scatter(traj[0, :, 0], traj[0, :, 1], s=10, alpha=0.8, c="black", label="x(0)")
+    # for i in range(N):
+    #     x0 = traj[0, i]
+    #     x1 = traj[-1, i]
+    #     ax.plot([x0[0], x1[0]], [x0[1], x1[1]], alpha=0.2, color="olive")
+    # ax.scatter(traj[0, :, 0], traj[0, :, 1], s=10, alpha=0.8, c="black", label="x(0)")
     ax.scatter(traj[-1, :, 0], traj[-1, :, 1], s=6, alpha=1.0, c="blue", label="x(1)")
     if x_ref is not None:
         ax.scatter(x_ref[:, 0], x_ref[:, 1], s=5, alpha=0.2, color="red", label="reference")
@@ -245,4 +304,51 @@ def plot_trajectories_vs_straight_lines(traj, x_ref=None, max_trajectories: int 
 
     plt.tight_layout()
     # plt.show()
+    return fig
+
+
+def plot_temporal_sigma_profile(
+    time_multipliear,
+    device,
+    t_start: float = 0.0,
+    t_end: float = 1.0,
+    num_points: int = 100,
+    title: str = r"Temporal sigma profile: f(t) t(1-t)",
+):
+    """
+    Plots temporal profile f(t) * t * (1-t).
+
+    Args:
+        bridge_scale_model: TimeSigmaMultiplier-like module, maps t:[B] -> [B]
+        device: torch device
+        t_start: left bound
+        t_end: right bound
+        num_points: number of evaluation points
+        title: plot title
+
+    Returns:
+        fig: matplotlib figure
+    """
+    with torch.no_grad():
+        t = torch.linspace(t_start, t_end, num_points, device=device)
+        f_t = time_multipliear(t)
+        base_t = t * (1.0 - t)
+        sigma_t = f_t * base_t
+
+    t_np = t.cpu().numpy()
+    f_np = f_t.cpu().numpy()
+    base_np = base_t.cpu().numpy()
+    sigma_np = sigma_t.cpu().numpy()
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.plot(t_np, sigma_np, label=r"$f(t)\,t(1-t)$", linewidth=2)
+    ax.plot(t_np, f_np, label=r"$f(t)$", linestyle="--", alpha=0.8)
+    ax.plot(t_np, base_np, label=r"$t(1-t)$", linestyle=":", alpha=0.8)
+
+    ax.set_xlabel("t")
+    ax.set_ylabel("value")
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+
     return fig

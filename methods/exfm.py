@@ -1,43 +1,63 @@
-from typing import Optional, Union
+"""
+Explicit Flow Matching (EXFM) method implementation.
+"""
+
+from typing import Optional
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 def pad_t_like_x(t: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    """Pad time tensor t to match the shape of x."""
     if isinstance(t, (float, int)):
         return t
     return t.view(-1, *([1] * (x.dim() - 1)))
 
 
 class ExplicitFlowMatcher(nn.Module):
+    """
+    Explicit Flow Matcher with spatial and temporal sigma modulation.
+    """
     def __init__(
         self,
         sigma_model: nn.Module,
+        time_model: nn.Module,
         eta: float = 1e-5,
         min_sigma: float = 1e-6,
         chunk_n0: Optional[int] = None,
         chunk_n1: Optional[int] = None,
         use_full_gaussian_prefactor: bool = True,
-        implementation="vcond",
+        implementation: str = "vcond",
     ):
         super().__init__()
         self.eta = eta
         self.sigma_model = sigma_model
+        self.time_multiplier = time_model
         self.min_sigma = min_sigma
         self.chunk_n0 = chunk_n0
         self.chunk_n1 = chunk_n1
         self.use_full_gaussian_prefactor = use_full_gaussian_prefactor
         self.implementation = implementation
 
-    def compute_mu_t(self, x0: torch.Tensor, x1: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def compute_mu_t(
+        self,
+        x0: torch.Tensor,
+        x1: torch.Tensor,
+        t: torch.Tensor
+    ) -> torch.Tensor:
         t_pad = pad_t_like_x(t, x0)
         return (1.0 - t_pad) * x0 + t_pad * x1
 
     def bridge_scale(self, t: torch.Tensor) -> torch.Tensor:
         return torch.sqrt((t + self.eta) * (1.0 - t + self.eta))
-        
-    def compute_sigma_t(self, x0: torch.Tensor, x1:torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+
+    def compute_sigma_t(
+        self,
+        x0: torch.Tensor,
+        x1: torch.Tensor,
+        t: torch.Tensor
+    ) -> torch.Tensor:
         """
         x: [..., D]
         t: [B], where x starts with batch dimension B
@@ -46,12 +66,14 @@ class ExplicitFlowMatcher(nn.Module):
         sigma_space = self.sigma_model(x0, x1)  # [...]
         scale_t = self.bridge_scale(t)
 
+        if self.time_multiplier is not None:
+            scale_t *= self.time_multiplier(t)
+
         # shape [B, 1, 1, ...] to match sigma_space
-        extra_dims = sigma_space.dim() - 1
         scale_t = pad_t_like_x(scale_t, sigma_space)
 
         sigma_t = sigma_space * scale_t
-        return sigma_t #.clamp_min(self.min_sigma)
+        return sigma_t  # .clamp_min(self.min_sigma)
 
     def sample_xt(
         self,
@@ -91,9 +113,9 @@ class ExplicitFlowMatcher(nn.Module):
 
     def _compute_log_weight(
         self,
-        xt: torch.Tensor,   # [B,1,1,D]
-        mu_t: torch.Tensor, # [B,n0,n1,D]
-        sigma_t: torch.Tensor, # [B,n0,n1]
+        xt: torch.Tensor,       # [B,1,1,D]
+        mu_t: torch.Tensor,     # [B,n0,n1,D]
+        sigma_t: torch.Tensor,  # [B,n0,n1]
     ) -> torch.Tensor:
         D = xt.shape[-1]
         dist2 = ((xt - mu_t) ** 2).sum(dim=-1)  # [B,n0,n1]
@@ -104,7 +126,7 @@ class ExplicitFlowMatcher(nn.Module):
             logw = logw - D * torch.log(sigma_t)
 
         return logw
-    
+
     def compute_explicit_flow_vcond(
         self,
         xt: torch.Tensor,      # [B,D]
@@ -274,7 +296,7 @@ class ExplicitFlowMatcher(nn.Module):
         x1_ref: torch.Tensor,  # [N1,D]
         chunk_n0: Optional[int] = None,
         chunk_n1: Optional[int] = None,
-        implementation = "vcond"
+        implementation: str = "vcond"
     ) -> torch.Tensor:
         if implementation == "vcond":
             return self.compute_explicit_flow_vcond(
@@ -294,6 +316,8 @@ class ExplicitFlowMatcher(nn.Module):
                 chunk_n0=chunk_n0,
                 chunk_n1=chunk_n1,
             )
+        else:
+            raise ValueError(f"Unknown implementation: {implementation}")
 
     def sample_location_and_conditional_flow(
         self,
