@@ -51,7 +51,7 @@ class VelocityModelConfig:
     """Configuration for velocity field model."""
     x_dim: int = 2
     hidden_dim: int = 256
-    num_layers: int = 5
+    num_layers: int = 4
     time_conditioning: Literal["scalar", "sinusoidal"] = "sinusoidal"
     time_emb_dim: int = 32
     use_layernorm: bool = True

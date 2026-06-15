@@ -157,7 +157,7 @@ class SchrodingerBridgeConditionalFlowMatcher(ConditionalFlowMatcher):
     and modified conditional flow field.
     """
 
-    def __init__(self, sigma: Union[float, int] = 1.0, ot_method: str = "exact"):
+    def __init__(self, sigma: Union[float, int] = 1.0, ot_method: str = "sinkhorn"):
         if sigma <= 0:
             raise ValueError(f"Sigma must be strictly positive, got {sigma}.")
         elif sigma < 1e-3:

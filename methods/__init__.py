@@ -13,6 +13,7 @@ from .cfm import (
 # as it is not currently needed
 from .exfm import ExplicitFlowMatcher
 from .optimal_transport import OTPlanSampler
+from .ot_exfm import ExplicitOptimalTransportFlowMatcher
 
 __all__ = [
     # CFM variants
@@ -21,6 +22,7 @@ __all__ = [
     "SchrodingerBridgeConditionalFlowMatcher",
     # EXFM
     "ExplicitFlowMatcher",
+    "ExplicitOptimalTransportFlowMatcher",
     # OT sampler
     "OTPlanSampler",
     # Utilities

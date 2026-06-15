@@ -14,20 +14,38 @@ if __name__ == "__main__":
     cfg.velocity.num_layers = 4
 
     # -------------------------
-    # Sigma model
+    # Kernel: TimeScaleRBF (sigma зависит от t через MLP)
     # -------------------------
-    cfg.sigma.init_sigma = 0.4
+    cfg.kernel.type = "time_scale_rbf"
+    cfg.kernel.time_scale_rbf.scale_type = "mlp"
+    
+    # TimeMLPScale configuration
+    cfg.kernel.time_scale_rbf.mlp.mode = "positive"
+    cfg.kernel.time_scale_rbf.mlp.time_emb_dim = 32
+    cfg.kernel.time_scale_rbf.mlp.hidden_dim = 64
+    cfg.kernel.time_scale_rbf.mlp.num_layers = 3
+    cfg.kernel.time_scale_rbf.mlp.init_value = 1.0
+    cfg.kernel.time_scale_rbf.mlp.min_value = 1e-4
+    cfg.kernel.time_scale_rbf.mlp.max_value = 10.0
+    cfg.kernel.time_scale_rbf.mlp.use_sinusoidal = True
+    cfg.kernel.time_scale_rbf.mlp.use_layernorm = True
+    
+    # RBF kernel parameters
+    cfg.kernel.time_scale_rbf.eta = 1e-5
+    cfg.kernel.time_scale_rbf.event_ndim = 1
+    cfg.kernel.time_scale_rbf.min_sigma = 1e-6
+    cfg.kernel.time_scale_rbf.use_prefactor = False
 
     # -------------------------
-    # Time model
+    # Flow Matcher
     # -------------------------
-    cfg.time.use_multiplier = True
+    cfg.flow.sigma = 0.4
 
     # -------------------------
     # Losses
     # -------------------------
-    cfg.loss.fm_weight = 1.0
-    cfg.loss.accel_weight = 0.0
+    cfg.loss.regularization_type = "none"
+    cfg.loss.regularization_weight = 0.0
 
     # -------------------------
     # Training
@@ -40,7 +58,7 @@ if __name__ == "__main__":
     # -------------------------
     cfg.clearml.use = True
     cfg.clearml.project_name = "ExFM-2moons"
-    cfg.clearml.task_name = "03-time_add"
+    cfg.clearml.task_name = "time_scale_rbf_mlp"
 
     # -------------------------
     # Run
