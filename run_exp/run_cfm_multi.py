@@ -10,31 +10,30 @@ if __name__ == "__main__":
     # -------------------------
     # Velocity model
     # -------------------------
-    # cfg.velocity.hidden_dim = 128
-    # cfg.velocity.num_layers = 4
 
     # -------------------------
     # CFM method
     # -------------------------
-    cfg.cfm.method = "basic"  # "basic" | "exact_ot" | "schrodinger"
-    cfg.cfm.sigma = 0.1
+    cfg.cfm.method = "ot-exfm"  # "basic" | "exact_ot" | "schrodinger" | "ot-exfm"
+    cfg.cfm.sigma = 0.4
 
     # -------------------------
     # Training
     # -------------------------
-    cfg.train.num_epochs = 60
+    cfg.train.num_epochs = 80
+    cfg.train.lr = 1e-4
 
     # -------------------------
     # ClearML
     # -------------------------
     cfg.clearml.use = True
     cfg.clearml.project_name = "Research"
-    cfg.clearml.task_name = "cfm_test"
+    cfg.clearml.task_name = "cfm_otexfm-c_sigma_0.4-c_lr_1e4"
 
     # -------------------------
     # Number of runs
     # -------------------------
-    num_runs = 5
+    num_runs = 9
 
     # -------------------------
     # Run

@@ -5,7 +5,7 @@ from torch.func import jacrev, vmap
 def compute_velocity_and_acceleration_components(model, x, t, eps: float = 1e-8):
     """
     Computes velocity and acceleration components for a velocity field model.
-    
+
     Material acceleration: a = d_t v + (Dv) v
     Normal acceleration: a_normal = a - a_tangent
     Curvature: kappa = ||a_normal|| / ||v||^2
@@ -113,8 +113,33 @@ def direction_consistency_loss(model, x, t, epsilon: float = 0.01, eps: float = 
     x_next = x + epsilon * v_t
     t_next = t + epsilon
     v_t_next = model(x_next, t_next)
-    
+
     v_t_unit = v_t / (v_t.norm(dim=-1, keepdim=True) + eps)
     v_t_next_unit = v_t_next / (v_t_next.norm(dim=-1, keepdim=True) + eps)
 
     return (1 - (v_t_unit * v_t_next_unit).sum(-1)).mean()
+
+
+def compute_regularizer(
+    loss_type: str,
+    model,
+    xt: torch.Tensor,
+    t: torch.Tensor,
+    epsilon: float = 0.01,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Compute regularizer loss by type."""
+    if loss_type == "normal_acceleration":
+        return normal_acceleration_penalty_loss(model, xt, t, eps=eps)
+    elif loss_type == "full_acceleration":
+        return full_acceleration_penalty_loss(model, xt, t, eps=eps)
+    elif loss_type == "curvature":
+        return curvature_penalty_loss(model, xt, t, eps=eps)
+    elif loss_type == "velocity_consistency":
+        return velocity_consistency_loss(model, xt, t, epsilon=epsilon)
+    elif loss_type == "direction_consistency":
+        return direction_consistency_loss(model, xt, t, epsilon=epsilon, eps=eps)
+    elif loss_type == "none":
+        return torch.tensor(0.0, device=xt.device)
+    else:
+        raise ValueError(f"Unknown regularization type: {loss_type}")

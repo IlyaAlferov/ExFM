@@ -21,6 +21,7 @@ from methods.cfm import (
     ExactOptimalTransportConditionalFlowMatcher,
     SchrodingerBridgeConditionalFlowMatcher,
 )
+from methods.ot_exfm import ExplicitOptimalTransportFlowMatcher
 from metrics import (
     integrate_trajectories,
     summarize_trajectory_metrics,
@@ -48,14 +49,15 @@ def create_flow_matcher(cfg):
     elif cfg.cfm.method == "exact_ot":
         return ExactOptimalTransportConditionalFlowMatcher(
             sigma=cfg.cfm.sigma,
-            reg=cfg.cfm.reg,
-            plan_sampler_kwargs=cfg.cfm.plan_sampler_kwargs,
         )
     elif cfg.cfm.method == "schrodinger":
         return SchrodingerBridgeConditionalFlowMatcher(
             sigma=cfg.cfm.sigma,
-            reg=cfg.cfm.reg,
-            plan_sampler_kwargs=cfg.cfm.plan_sampler_kwargs,
+        )
+    elif cfg.cfm.method == "ot-exfm":
+        return ExplicitOptimalTransportFlowMatcher(
+            sigma=cfg.cfm.sigma,
+            ot_method="exact",
         )
     else:
         raise ValueError(f"Unknown CFM method: {cfg.cfm.method}")
@@ -342,7 +344,7 @@ def train_cfm_multi(cfg: ExperimentConfig, num_runs: int) -> dict:
     if cfg.clearml.use:
         aggregate_task = Task.init(
             project_name=cfg.clearml.project_name,
-            task_name=f"{cfg.clearml.task_name}_multi_{num_runs}_runs",
+            task_name=cfg.clearml.task_name,
             auto_connect_frameworks={"pytorch": False},
         )
 

@@ -14,20 +14,29 @@ if __name__ == "__main__":
     cfg.velocity.num_layers = 4
 
     # -------------------------
-    # Sigma model
+    # Kernel: TimeRBF (constant sigma)
     # -------------------------
-    cfg.sigma.init_sigma = 0.4
+    cfg.kernel.type = "time_rbf"
+    cfg.kernel.time_rbf.base_sigma.mode = "constant"
+    cfg.kernel.time_rbf.base_sigma.init_sigma = 0.4
+    cfg.kernel.time_rbf.base_sigma.min_sigma = 1e-4
+
+    # RBF kernel parameters
+    cfg.kernel.time_rbf.eta = 1e-5
+    cfg.kernel.time_rbf.event_ndim = 1
+    cfg.kernel.time_rbf.min_sigma = 1e-6
+    cfg.kernel.time_rbf.use_prefactor = False
 
     # -------------------------
-    # Time model
+    # Flow Matcher
     # -------------------------
-    cfg.time.use_multiplier = True
+    cfg.flow.sigma = 0.4
 
     # -------------------------
     # Losses
     # -------------------------
-    cfg.loss.fm_weight = 1.0
-    # cfg.loss.accel_weight = 1.0
+    cfg.loss.regularization_type = "full_acceleration"
+    cfg.loss.regularization_weight = 0.01
 
     # -------------------------
     # Training
@@ -39,7 +48,7 @@ if __name__ == "__main__":
     # ClearML
     # -------------------------
     cfg.clearml.project_name = "Research"
-    cfg.clearml.task_name = "exfm-06a-time"
+    cfg.clearml.task_name = "exfm-time_rbf-fullacc"
 
     # -------------------------
     # Number of runs

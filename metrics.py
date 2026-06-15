@@ -308,12 +308,13 @@ def plot_trajectories_vs_straight_lines(
 
 
 def plot_temporal_sigma_profile(
-    time_multipliear,
+    time_multiplier,
+    eta,
     device,
     t_start: float = 0.0,
     t_end: float = 1.0,
     num_points: int = 100,
-    title: str = r"Temporal sigma profile: f(t) t(1-t)",
+    title: str = "Temporal sigma profile",
 ):
     """
     Plots temporal profile f(t) * t * (1-t).
@@ -331,8 +332,8 @@ def plot_temporal_sigma_profile(
     """
     with torch.no_grad():
         t = torch.linspace(t_start, t_end, num_points, device=device)
-        f_t = time_multipliear(t)
-        base_t = t * (1.0 - t)
+        f_t = time_multiplier(t)
+        base_t = torch.sqrt((t + eta) * (1.0 - t + eta))
         sigma_t = f_t * base_t
 
     t_np = t.cpu().numpy()
@@ -341,9 +342,9 @@ def plot_temporal_sigma_profile(
     sigma_np = sigma_t.cpu().numpy()
 
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot(t_np, sigma_np, label=r"$f(t)\,t(1-t)$", linewidth=2)
-    ax.plot(t_np, f_np, label=r"$f(t)$", linestyle="--", alpha=0.8)
-    ax.plot(t_np, base_np, label=r"$t(1-t)$", linestyle=":", alpha=0.8)
+    ax.plot(t_np, sigma_np, label="f(t) sqrt(t(1-t))", linewidth=2)
+    ax.plot(t_np, f_np, label="f(t)", linestyle="--", alpha=0.8)
+    ax.plot(t_np, base_np, label="t(1-t)", linestyle=":", alpha=0.8)
 
     ax.set_xlabel("t")
     ax.set_ylabel("value")

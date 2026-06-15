@@ -16,7 +16,7 @@ if __name__ == "__main__":
     # -------------------------
     # CFM method
     # -------------------------
-    cfg.cfm.method = "basic"  # "basic" | "exact_ot" | "schrodinger"
+    cfg.cfm.method = "exact_ot"  # "basic" | "exact_ot" | "schrodinger"
     cfg.cfm.sigma = 0.1
 
     # -------------------------
@@ -28,7 +28,7 @@ if __name__ == "__main__":
     # ClearML
     # -------------------------
     cfg.clearml.use = True
-    cfg.clearml.task_name = "cfm_basic_sigma_0.1"
+    cfg.clearml.task_name = "ot_cfm-sigma_0.1"
 
     # -------------------------
     # Run

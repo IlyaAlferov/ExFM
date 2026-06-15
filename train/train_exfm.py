@@ -14,10 +14,11 @@ import matplotlib.pyplot as plt
 from clearml import Task
 
 from configs.exfm import ExperimentConfig
+from configs.sigma import build_weight_kernel
 from data import create_datasets, create_dataloaders
-from models import VelocityMLP, SpatialSigmaModel, TimeSigmaMultiplier
+from models import VelocityMLP
 from methods.exfm import ExplicitFlowMatcher
-from losses import normal_acceleration_penalty_loss, velocity_consistency_loss
+from losses import compute_regularizer
 from metrics import (
     integrate_trajectories,
     summarize_trajectory_metrics,
@@ -109,70 +110,31 @@ def train_exfm_single(
         use_layernorm=cfg.velocity.use_layernorm,
     ).to(device)
 
-    sigma_model = SpatialSigmaModel(
-        mode=cfg.sigma.mode,
-        init_sigma=cfg.sigma.init_sigma,
-        min_sigma=cfg.sigma.min_sigma,
-    ).to(device)
-
-    time_multiplier = TimeSigmaMultiplier(
-        time_emb_dim=cfg.time.time_emb_dim,
-        hidden_dim=cfg.time.hidden_dim,
-        num_layers=cfg.time.num_layers,
-        init_value=cfg.time.init_value,
-        min_value=cfg.time.min_value,
-        max_value=cfg.time.max_value,
-        use_sinusoidal=cfg.time.use_sinusoidal,
-        mode="additive"  #
-    ).to(device)
-
+    weight_kernel = build_weight_kernel(cfg.kernel)
     FM = ExplicitFlowMatcher(
-        sigma_model=sigma_model,
-        time_model=time_multiplier if cfg.time.use_multiplier else None,
+        sampling_sigma=cfg.flow.sigma,
+        weight_kernel=weight_kernel,
         eta=cfg.flow.eta,
-        min_sigma=cfg.flow.min_sigma,
         chunk_n0=cfg.flow.chunk_n0,
         chunk_n1=cfg.flow.chunk_n1,
-        use_full_gaussian_prefactor=cfg.flow.use_full_gaussian_prefactor,
-        implementation=cfg.flow.implementation,
     ).to(device)
 
     # -----------------------------
     # Optimizer
     # -----------------------------
-    # -----------------------------
-# Optimizer
-# -----------------------------
-# Separate parameter groups for different learning rates
-    optimizer_params = [
+    param_groups = [
         {
-            "params": list(model.parameters()) + list(sigma_model.parameters()),
+            "params": model.parameters(),
             "lr": cfg.train.lr,
             "weight_decay": cfg.train.weight_decay,
-        }
+        },
+        {
+            "params": FM.parameters(),
+            "lr": 3e-5,  # cfg.train.lr,  # 3e-5
+            "weight_decay": cfg.train.weight_decay,
+        },
     ]
-
-    if cfg.time.use_multiplier:
-        time_lr = 5e-5  # getattr(cfg.time, "lr", cfg.train.lr)
-        optimizer_params.append(
-            {
-                "params": time_multiplier.parameters(),
-                "lr": time_lr,
-                "weight_decay": cfg.train.weight_decay,
-            }
-        )
-
-    optimizer = torch.optim.AdamW(optimizer_params)
-
-    # params_to_optimize = list(model.parameters()) + list(sigma_model.parameters())
-    # if cfg.time.use_multiplier:
-    #     params_to_optimize.extend(list(time_multiplier.parameters()))
-
-    # optimizer = torch.optim.AdamW(
-    #     params_to_optimize,
-    #     lr=cfg.train.lr,
-    #     weight_decay=cfg.train.weight_decay,
-    # )
+    optimizer = torch.optim.AdamW(param_groups)
 
     start_time = time.time()
 
@@ -189,14 +151,11 @@ def train_exfm_single(
     # -----------------------------
     for epoch in range(1, cfg.train.num_epochs + 1):
         model.train()
-        sigma_model.train()
-        if cfg.time.use_multiplier:
-            time_multiplier.train()
+        FM.train()
 
         epoch_loss_sum = 0.0
         epoch_fm_sum = 0.0
-        epoch_accel_sum = 0.0
-        epoch_cons_sum = 0.0
+        epoch_reg_sum = 0.0
         epoch_num_steps = 0
 
         for x0_ref, x1_ref in reference_loader:
@@ -225,33 +184,28 @@ def train_exfm_single(
                     return_noise=False,
                     chunk_n0=cfg.flow.chunk_n0,
                     chunk_n1=cfg.flow.chunk_n1,
-                    implementation=cfg.flow.implementation,
                 )
 
                 v_pred = model(xt, t)
                 fm_loss = F.mse_loss(v_pred, ut)
 
-                total_loss = cfg.loss.fm_weight * fm_loss
+                total_loss = fm_loss
 
-                accel_loss = torch.tensor(0.0, device=device)
-                if cfg.loss.accel_weight > 0:
-                    accel_loss = normal_acceleration_penalty_loss(model, xt, t)
-                    total_loss = total_loss + cfg.loss.accel_weight * accel_loss
-
-                cons_loss = torch.tensor(0.0, device=device)
-                if cfg.loss.consistency_weight > 0:
-                    cons_loss = velocity_consistency_loss(
+                reg_loss = torch.tensor(0.0, device=device)
+                if cfg.loss.regularization_type != "none" and cfg.loss.regularization_weight > 0:
+                    reg_loss = compute_regularizer(
+                        cfg.loss.regularization_type,
                         model, xt, t,
                         epsilon=cfg.loss.consistency_epsilon,
                     )
-                    total_loss = total_loss + cfg.loss.consistency_weight * cons_loss
+                    total_loss = total_loss + cfg.loss.regularization_weight * reg_loss
 
                 total_loss.backward()
 
                 # Gradient clipping
                 if cfg.train.grad_clip_norm is not None:
                     torch.nn.utils.clip_grad_norm_(
-                        list(model.parameters()) + list(sigma_model.parameters()),
+                        list(model.parameters()) + list(FM.parameters()),
                         cfg.train.grad_clip_norm,
                     )
 
@@ -260,50 +214,72 @@ def train_exfm_single(
                 epoch_num_steps += 1
                 epoch_loss_sum += total_loss.item()
                 epoch_fm_sum += fm_loss.item()
-                epoch_accel_sum += accel_loss.item()
-                epoch_cons_sum += cons_loss.item()
+                epoch_reg_sum += reg_loss.item()
 
         avg_loss = epoch_loss_sum / max(epoch_num_steps, 1)
         avg_fm = epoch_fm_sum / max(epoch_num_steps, 1)
-        avg_accel = epoch_accel_sum / max(epoch_num_steps, 1)
-        avg_cons = epoch_cons_sum / max(epoch_num_steps, 1)
+        avg_reg = epoch_reg_sum / max(epoch_num_steps, 1)
 
         history["train/avg_loss"].append(avg_loss)
         history["train/avg_fm"].append(avg_fm)
-        history["train/avg_accel"].append(avg_accel)
-        history["train/avg_cons"].append(avg_cons)
+        history["train/avg_accel"].append(avg_reg)
 
         print(
             f"\n[Epoch {epoch:03d}] "
             f"avg_loss={avg_loss:.6f} "
             f"avg_fm={avg_fm:.6f} "
-            f"avg_accel={avg_accel:.6f} "
-            f"avg_cons={avg_cons:.6f}"
+            f"avg_reg={avg_reg:.6f} "
         )
 
         if logger is not None:
             logger.report_scalar("epoch", "avg_loss", avg_loss, epoch)
             logger.report_scalar("epoch", "avg_fm_loss", avg_fm, epoch)
-            logger.report_scalar("epoch", "avg_normal_accel_loss", avg_accel, epoch)
-            logger.report_scalar("epoch", "avg_vel_consistency_loss", avg_cons, epoch)
+            logger.report_scalar("epoch", "avg_regularization_loss", avg_reg, epoch)
 
             # Log spatial sigma value
             with torch.no_grad():
-                if sigma_model.mode == "scalar":
-                    current_sigma = F.softplus(sigma_model.sigma_param) + sigma_model.min_sigma
-                    logger.report_scalar("sigma", "spatial_sigma_value", current_sigma.item(), epoch)
-                elif sigma_model.mode == "constant":
-                    logger.report_scalar("sigma", "spatial_sigma_value", sigma_model.sigma_const.item(), epoch)
+                if cfg.kernel.type == "time_rbf":
+                    sigma_base = FM.weight_kernel.sigma_base
+                    if sigma_base.mode == "scalar":
+                        current_sigma = sigma_base.min_sigma + F.softplus(sigma_base.sigma_param)
+                        current_sigma = current_sigma.item()
+                        logger.report_scalar(
+                            title="sigma",
+                            series="spatial_sigma_value",
+                            value=current_sigma,
+                            iteration=epoch,
+                        )
+                if cfg.kernel.type == "time_scale_rbf":
+                    weight_kernel = FM.weight_kernel
+                    fig = plot_temporal_sigma_profile(
+                        weight_kernel.time_scale,
+                        weight_kernel.eta,
+                        device
+                    )
+                    logger.report_matplotlib_figure(
+                        title="time_multiplier",
+                        series=f"time_multiplier_plot_ep_{epoch}",
+                        iteration=epoch,
+                        figure=fig,
+                    )
+                    plt.close(fig)
+                    if cfg.kernel.scale_type == "chebyshev":
+                        time_scale = weight_kernel.time_scale
+                        coeffs = time_scale.coeffs.detach().cpu()
+                        for i, value in enumerate(coeffs):
+                            logger.report_scalar(
+                                title="chebyshev_coeffs",
+                                series=f"a_{i}",
+                                value=value.item(),
+                                iteration=epoch,
+                            )
 
         # -----------------------------
         # Evaluation on fixed validation set
         # -----------------------------
         if epoch % cfg.train.eval_every_epochs == 0:
             model.eval()
-            if cfg.sigma.mode != 'constant':
-                sigma_model.eval()
-            if time_multiplier is not None:
-                time_multiplier.eval()
+            FM.eval()
 
             with torch.no_grad():
                 traj = integrate_trajectories(
@@ -342,16 +318,6 @@ def train_exfm_single(
                     figure=fig,
                 )
                 plt.close(fig)
-
-                if cfg.time.use_multiplier:
-                    fig = plot_temporal_sigma_profile(time_multiplier, device)
-                    logger.report_matplotlib_figure(
-                        title="time_multiplier",
-                        series=f"time_multiplier_plot_ep_{epoch}",
-                        iteration=0,
-                        figure=fig,
-                    )
-                    plt.close(fig)
 
     total_time = time.time() - start_time
 
